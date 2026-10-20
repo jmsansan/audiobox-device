@@ -1,21 +1,64 @@
+[workspace]
+members = [".", "worklet", "web-demo"]
+
 [package]
 name = "audiobox-device"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 authors = ["Jose Sanchez <jose.sansan@proton.me>"]
-description = "Plays audiobox's real-time mixer on the audio device, natively through cpal, and keeps it playing when the device changes"
+description = "Plays audiobox's real-time mixer on the audio device: natively through cpal, and in the browser through an AudioWorklet, with one API for both"
 license = "MIT"
 repository = "https://github.com/jmsansan/audiobox-device"
 documentation = "https://docs.rs/audiobox-device"
 readme = "README.md"
-keywords = ["audio", "gamedev", "cpal", "mixer", "audiobox"]
-categories = ["multimedia::audio", "game-development"]
+keywords = ["audio", "gamedev", "cpal", "webaudio", "audiobox"]
+categories = ["multimedia::audio", "game-development", "wasm"]
+include = ["/Cargo.toml", "/src/**", "/web/**", "/tests/**", "/examples/*.rs", "/README.md", "/CHANGELOG.md", "/LICENSE"]
+
+[features]
+default = ["web"]
+# The browser output (`WebOutput`), on `wasm32-unknown-unknown`. Without it, the crate
+# still builds for the Web, for the worklet module itself.
+web = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:web-sys"]
 
 [dependencies]
-audiobox = { version = "0.2.1", features = ["mixer"] }
+audiobox = { version = "0.2.1", features = ["mixer", "synth"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.18.2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2.129", optional = true }
+wasm-bindgen-futures = { version = "0.4.79", optional = true }
+js-sys = { version = "0.3.106", optional = true }
+web-sys = { version = "0.3.106", optional = true, features = [
+    "AudioContext",
+    "AudioContextOptions",
+    "AudioContextState",
+    "AudioDestinationNode",
+    "AudioNode",
+    "AudioWorklet",
+    "AudioWorkletNode",
+    "AudioWorkletNodeOptions",
+    "BaseAudioContext",
+    "Blob",
+    "BlobPropertyBag",
+    "MessageEvent",
+    "MessagePort",
+    "Url",
+    "Worklet",
+] }
 
 [dev-dependencies]
 audiobox = { version = "0.2.1", features = ["mixer", "synth", "sfx"] }
 
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+all-features = true

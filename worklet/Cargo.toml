@@ -1,0 +1,14 @@
+[package]
+name = "audiobox-device-worklet"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "The WebAssembly module that audiobox-device's audio worklet runs; built by scripts/build-worklet.mjs and embedded in audiobox-device"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+audiobox-device = { path = "..", default-features = false }
