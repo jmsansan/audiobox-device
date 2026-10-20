@@ -48,6 +48,9 @@ pub async fn start() -> Result<(), JsValue> {
     let config = MixerConfig {
         sample_rate: RATE,
         buses: vec!["music".into(), "effects".into()],
+        // A queue of this size makes the worklet's first render grow the module's memory,
+        // which the worklet's script must survive (the review of audiobox-device#4).
+        queue: 336,
         ..MixerConfig::default()
     };
     let (output, mut player) = WebOutput::open(&config).await.map_err(error)?;

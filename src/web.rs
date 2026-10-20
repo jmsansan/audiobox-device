@@ -51,22 +51,27 @@ impl WebOutput {
         }
         let options = AudioContextOptions::new();
         options.set_sample_rate(config.sample_rate as f32);
-        let context = AudioContext::new_with_context_options(&options)
-            .map_err(|error| js(ErrorCode::HostUnavailable, error))?;
+        // Closed again if opening fails or the future is dropped before it finishes.
+        let mut guard = ContextGuard(Some(
+            AudioContext::new_with_context_options(&options)
+                .map_err(|error| js(ErrorCode::HostUnavailable, error))?,
+        ));
+        let context = guard.0.clone().expect("set above");
 
-        // The script, from a blob URL, so that nothing has to be served.
+        // The script, from a blob URL, so that nothing has to be served. The URL is revoked
+        // once the worklet has loaded it, or failed to.
         let parts = Array::of1(&JsValue::from_str(WORKLET_SCRIPT));
         let bag = BlobPropertyBag::new();
         bag.set_type("text/javascript");
         let blob = Blob::new_with_str_sequence_and_options(&parts, &bag).map_err(stream)?;
-        let url = Url::create_object_url_with_blob(&blob).map_err(stream)?;
+        let url = UrlGuard(Url::create_object_url_with_blob(&blob).map_err(stream)?);
         let added = context
             .audio_worklet()
             .map_err(stream)?
-            .add_module(&url)
+            .add_module(&url.0)
             .map_err(stream)?;
         JsFuture::from(added).await.map_err(stream)?;
-        let _ = Url::revoke_object_url(&url);
+        drop(url);
 
         // The module, compiled here and passed to the worklet, which cannot fetch.
         let bytes = Uint8Array::from(WORKLET_MODULE);
@@ -87,6 +92,8 @@ impl WebOutput {
 
         let port = Port::new(node.port().map_err(stream)?);
         port.post(&protocol::encode_init(config))?;
+        // Opened: the output owns the context from here.
+        guard.0 = None;
         Ok((WebOutput { context, node }, Player::web(port, config)))
     }
 
@@ -132,6 +139,28 @@ impl Drop for WebOutput {
         if let Ok(promise) = self.context.close() {
             drop(JsFuture::from(promise));
         }
+    }
+}
+
+/// Closes an audio context that an unfinished [`WebOutput::open`] made.
+struct ContextGuard(Option<AudioContext>);
+
+impl Drop for ContextGuard {
+    fn drop(&mut self) {
+        if let Some(context) = self.0.take()
+            && let Ok(promise) = context.close()
+        {
+            drop(JsFuture::from(promise));
+        }
+    }
+}
+
+/// Revokes a blob URL when it is no longer needed.
+struct UrlGuard(String);
+
+impl Drop for UrlGuard {
+    fn drop(&mut self) {
+        let _ = Url::revoke_object_url(&self.0);
     }
 }
 
@@ -194,6 +223,15 @@ impl Port {
 
     pub(crate) fn frame(&self) -> u64 {
         self.state.borrow().frame
+    }
+}
+
+impl Drop for Port {
+    /// The callback is freed with the port: unregister it first, so that later reports
+    /// from the worklet do not call a freed closure.
+    fn drop(&mut self) {
+        self.port.set_onmessage(None);
+        self.port.close();
     }
 }
 

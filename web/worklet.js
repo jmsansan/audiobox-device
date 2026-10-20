@@ -36,7 +36,9 @@ class AudioboxDevice extends AudioWorkletProcessor {
     const x = this.exports;
     const length = x.reports_len();
     if (length === 0) return;
-    const copy = new Uint8Array(x.memory.buffer, x.reports_ptr(), length).slice();
+    // Read the memory only after the calls that may grow it, which would detach a view.
+    const pointer = x.reports_ptr();
+    const copy = new Uint8Array(x.memory.buffer, pointer, length).slice();
     x.reports_clear();
     this.port.postMessage(copy.buffer, [copy.buffer]);
   }
@@ -47,7 +49,9 @@ class AudioboxDevice extends AudioWorkletProcessor {
     if (!x || x.channels() === 0) return true;
     const frames = output[0].length;
     const channels = x.channels();
-    const samples = new Float32Array(x.memory.buffer, x.render(frames), frames * channels);
+    // render may grow the memory, which detaches earlier views: take the buffer after it.
+    const pointer = x.render(frames);
+    const samples = new Float32Array(x.memory.buffer, pointer, frames * channels);
     for (let channel = 0; channel < output.length; channel++) {
       const target = output[channel];
       const source = Math.min(channel, channels - 1);
