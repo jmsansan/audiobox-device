@@ -94,8 +94,8 @@ and commands keep their order while the page is busy.
 | Platform | Audio system | Status |
 | --- | --- | --- |
 | Windows | WASAPI | Ran on Windows 10, on a USB DAC and an HDMI monitor |
-| Web | AudioWorklet | Ran in Edge 155 and Brave on Windows, headless, with `web-demo/check.mjs` |
-| macOS | CoreAudio | Builds through `cpal`; not run yet |
+| Web | AudioWorklet | Ran in Edge 155 and Brave on Windows, headless, with `web-demo/check.mjs`, and in Edge 155 on macOS, headless and in a window |
+| macOS | CoreAudio | Ran on macOS 26.6 on an M2 Pro, on the built-in speakers at 48 kHz and Bluetooth headphones at 44.1 kHz, resampled and not |
 | Linux | ALSA, and PulseAudio or PipeWire through it | Builds through `cpal`; not run yet |
 | Android | AAudio | Experimental: not run on a device |
 | iOS | CoreAudio | Experimental: not run on a device |
