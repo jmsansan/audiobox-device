@@ -3,11 +3,11 @@ use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use audiobox::mixer::Mixer;
+use audiobox::mixer::{Mixer, MixerConfig};
 
 use crate::backend::{Backend, BackendEvent, DeviceInfo, StreamHandle, StreamPlan, StreamRequest};
 use crate::render::Renderer;
-use crate::{CpalBackend, Error, ErrorCode, Result};
+use crate::{CpalBackend, Error, ErrorCode, Player, Result};
 
 /// Smallest and largest buffer that [`DeviceConfig::buffer_frames`] accepts.
 pub const BUFFER_FRAMES: std::ops::RangeInclusive<u32> = 16..=16_384;
@@ -102,6 +102,13 @@ impl AudioOutput<CpalBackend> {
         Self::with_backend(CpalBackend::new(), mixer, config)
     }
 
+    /// Makes a mixer with `mixer`, plays it on the operating system's audio device, and
+    /// returns the output and a [`Player`] for it: the API that the browser's output
+    /// shares.
+    pub fn open_player(mixer: &MixerConfig, device: &DeviceConfig) -> Result<(Self, Player)> {
+        Self::with_backend_player(CpalBackend::new(), mixer, device)
+    }
+
     /// The operating system's output devices.
     pub fn devices() -> Result<Vec<DeviceInfo>> {
         CpalBackend::new().devices()
@@ -141,6 +148,17 @@ impl<B: Backend> AudioOutput<B> {
         let info = output.start(output.config.device.clone())?;
         output.info = Some(info);
         Ok(output)
+    }
+
+    /// [`AudioOutput::open_player`] through `backend`.
+    pub fn with_backend_player(
+        backend: B,
+        mixer: &MixerConfig,
+        device: &DeviceConfig,
+    ) -> Result<(Self, Player)> {
+        let (mixer_half, handle) = Mixer::new(mixer.clone())?;
+        let output = Self::with_backend(backend, mixer_half, device)?;
+        Ok((output, Player::new(handle, mixer)))
     }
 
     /// The stream that is playing, or `None` while it could not be reopened.

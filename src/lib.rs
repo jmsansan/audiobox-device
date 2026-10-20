@@ -2,7 +2,7 @@
 //!
 //! `audiobox` makes and mixes the samples and stays free of dependencies and `unsafe`.
 //! This crate carries them to the device: it opens the operating system's output stream
-//! with [`cpal`], calls the mixer's `render` from the device's audio thread, and keeps the
+//! with `cpal`, calls the mixer's `render` from the device's audio thread, and keeps the
 //! sound playing when the device changes.
 //!
 //! ```no_run
@@ -32,7 +32,7 @@
 //!   voices, fades and scheduled changes keep their timing.
 //! - **Channels.** A stereo mixer plays on the first two channels of a surround device,
 //!   and is averaged on a mono one.
-//! - **Device changes.** [`AudioOutput::poll`] reopens the stream when the device
+//! - **Device changes.** `AudioOutput::poll` reopens the stream when the device
 //!   disappears, its configuration changes, or the system's default device changes, and
 //!   the mixer keeps its voices.
 //!
@@ -45,22 +45,65 @@
 //!
 //! # Platforms
 //!
-//! Through `cpal`: WASAPI on Windows, CoreAudio on macOS and iOS, ALSA (with PulseAudio
-//! and PipeWire through it) on Linux, and AAudio on Android. The README says which have
-//! run. The browser is a separate path, not yet in this crate.
+//! Natively through `cpal`: WASAPI on Windows, CoreAudio on macOS and iOS, ALSA (with
+//! PulseAudio and PipeWire through it) on Linux, and AAudio on Android. In the browser,
+//! with the `web` feature (on by default) on `wasm32-unknown-unknown`, through an
+//! `AudioWorklet`: see `WebOutput`. The README says which have run.
+//!
+//! # One API for both
+//!
+//! A [`Player`] loads sounds and plays them by id, the same way natively and in the
+//! browser. Natively, `AudioOutput::open_player` returns one; in the browser,
+//! `WebOutput::open` does. Sounds are loaded once because, in the browser, the mixer runs
+//! in a WebAssembly instance of its own on the audio thread; a score of `audiobox`'s
+//! synthesizer travels there as its text and is synthesized as it plays.
+#[cfg(not(target_arch = "wasm32"))]
 mod backend;
+#[cfg(not(target_arch = "wasm32"))]
 mod cpal_backend;
 mod error;
+#[cfg(not(target_arch = "wasm32"))]
 mod output;
+mod player;
+#[cfg_attr(
+    not(all(target_arch = "wasm32", feature = "web")),
+    allow(
+        dead_code,
+        reason = "the page's half of the protocol runs in the browser; tests use it natively"
+    )
+)]
+mod protocol;
+#[cfg(not(target_arch = "wasm32"))]
 mod render;
+#[cfg(not(target_arch = "wasm32"))]
 mod resample;
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+mod web;
+mod worklet;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub use backend::{
     Backend, BackendEvent, DeviceInfo, RenderCallback, StreamHandle, StreamPlan, StreamRequest,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use cpal_backend::CpalBackend;
 pub use error::{Error, ErrorCode, Result};
+#[cfg(not(target_arch = "wasm32"))]
 pub use output::{AudioOutput, BUFFER_FRAMES, DeviceConfig, DeviceEvent, StreamInfo};
+pub use player::{Bus, PlayOptions, Player, PlayerEvent, Scheduled, SoundId, VoiceId};
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+pub use web::WebOutput;
+
+/// The engine that the crate `audiobox-device-worklet` wraps for the browser's audio
+/// worklet. Not part of the stable API.
+#[doc(hidden)]
+pub mod __worklet {
+    pub use crate::worklet::Engine;
+}
 
 pub use audiobox;
+#[cfg(not(target_arch = "wasm32"))]
 pub use cpal;
+
+#[cfg(test)]
+mod tests;

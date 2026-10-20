@@ -1,0 +1,19 @@
+[package]
+name = "audiobox-device-web-demo"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A page that plays audiobox-device's browser output, for its browser check (web-demo/check.mjs)"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+audiobox-device = { path = ".." }
+audiobox = { version = "0.2.1", features = ["mixer", "synth", "sfx"] }
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4.79"
+js-sys = "0.3.106"
+web-sys = { version = "0.3.106", features = ["AnalyserNode", "AudioNode", "AudioWorkletNode", "BaseAudioContext"] }

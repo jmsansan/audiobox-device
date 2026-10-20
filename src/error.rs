@@ -18,7 +18,7 @@ pub enum ErrorCode {
     HostUnavailable,
     /// The device supports no configuration that the mixer can be played through.
     UnsupportedConfig,
-    /// A setting of [`DeviceConfig`](crate::DeviceConfig) is out of range.
+    /// A setting of `DeviceConfig` is out of range.
     InvalidArgument,
     /// The stream failed while it played.
     StreamFailed,

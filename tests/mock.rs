@@ -357,3 +357,79 @@ fn a_surround_device_gets_the_mixer_on_its_first_two_channels() {
         assert!(frame[2..].iter().all(|s| *s == 0.0));
     }
 }
+
+#[test]
+fn the_player_loads_sounds_and_plays_them_by_id() {
+    use audiobox::mixer::Fade;
+    use audiobox::synth::RenderOptions;
+    use audiobox_device::{PlayOptions, PlayerEvent};
+
+    let mock = Mock::new(48_000, 2);
+    let config = MixerConfig {
+        buses: vec!["music".into(), "effects".into()],
+        ..MixerConfig::default()
+    };
+    let (_output, mut player) =
+        AudioOutput::with_backend_player(mock.clone(), &config, &DeviceConfig::default()).unwrap();
+    assert_eq!(player.sample_rate(), 48_000);
+    let effects = player.bus("effects").unwrap();
+    assert!(player.bus("voices").is_none());
+
+    let click = player
+        .load(Audio::new(vec![vec![0.5; 240]], 48_000).unwrap())
+        .unwrap();
+    let voice = player
+        .play(
+            click,
+            &PlayOptions {
+                bus: effects,
+                ..PlayOptions::default()
+            },
+        )
+        .unwrap();
+    let first = mock.pull(128);
+    assert!(
+        (first[0] - 0.5 * std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-4,
+        "{}",
+        first[0]
+    );
+    mock.pull(256);
+    assert_eq!(player.poll_event(), Some(PlayerEvent::Ended(voice)));
+    assert_eq!(player.frame(), 384);
+
+    // A bus at zero silences what plays through it.
+    player.set_bus_gain(effects, 0.0, Fade::NONE).unwrap();
+    player
+        .play(
+            click,
+            &PlayOptions {
+                bus: effects,
+                ..PlayOptions::default()
+            },
+        )
+        .unwrap();
+    assert!(mock.pull(128).iter().all(|s| *s == 0.0));
+
+    // A score, checked when it is loaded, plays as it is synthesized.
+    let bad = player.load_score("channel x = @nothing c", RenderOptions::default());
+    assert_eq!(
+        bad.err().map(|error| error.code),
+        Some(ErrorCode::InvalidArgument)
+    );
+    let song = player
+        .load_score(
+            "tempo 150\ninstrument lead wave=pulse duty=25\nchannel lead = @lead o5 l8 c e g e",
+            RenderOptions::default(),
+        )
+        .unwrap();
+    let music = player.play(song, &PlayOptions::default()).unwrap();
+    let energy: f32 = (0..20).flat_map(|_| mock.pull(128)).map(|s| s * s).sum();
+    assert!(energy > 0.1, "{energy}");
+    // Scheduled at an exact frame.
+    let at = player.frame() + 1_000;
+    player.at(at).stop(music, Fade::NONE).unwrap();
+    mock.pull(1_200);
+    assert!(
+        std::iter::from_fn(|| player.poll_event()).any(|event| event == PlayerEvent::Ended(music))
+    );
+}

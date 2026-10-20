@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>audiobox-device in the browser</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; margin: 2rem; background: #111827; color: #e5e7eb; }
+    button { font: inherit; padding: .5rem 1rem; margin-right: .5rem; }
+    pre { background: #1f2937; padding: 1rem; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>audiobox-device in the browser</h1>
+  <p>Chiptune music from a text score and a jump effect, mixed by audiobox in an AudioWorklet.</p>
+  <button id="start">Start</button>
+  <button id="jump" disabled>Jump</button>
+  <pre id="status">Press Start: browsers start audio only after a gesture.</pre>
+  <script type="module">
+    import init, { start, jump, resume, status, busy_sequence } from './pkg/audiobox_device_web_demo.js';
+    await init();
+    const show = () => { document.getElementById('status').textContent = status(); };
+    const begin = async () => {
+      try {
+        await start();
+        document.getElementById('jump').disabled = false;
+        setInterval(show, 200);
+      } catch (error) {
+        document.getElementById('status').textContent = 'FAILED: ' + error;
+      }
+    };
+    document.getElementById('start').onclick = () => { begin(); resume(); };
+    document.getElementById('jump').onclick = () => jump();
+    // The automated check starts at once and jumps every half second.
+    if (new URLSearchParams(location.search).has('auto')) {
+      await begin();
+      setTimeout(() => busy_sequence(), 300);
+      setInterval(() => jump(), 500);
+    }
+  </script>
+</body>
+</html>
