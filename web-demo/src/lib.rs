@@ -5,7 +5,7 @@
 
 use std::cell::RefCell;
 
-use audiobox::mixer::{Fade, Loop, MixerConfig};
+use audiobox::mixer::{Fade, Loop, MixerConfig, Variation};
 use audiobox::sfx::{Effect, Preset};
 use audiobox::synth::RenderOptions;
 use audiobox_device::{Bus, PlayOptions, Player, PlayerEvent, SoundId, VoiceId, WebOutput};
@@ -29,6 +29,7 @@ struct Demo {
     jump: SoundId,
     jumps: u32,
     ended: u32,
+    limited: u32,
     failed: Vec<String>,
     busy_voice: Option<VoiceId>,
     busy_ended: bool,
@@ -92,6 +93,7 @@ pub async fn start() -> Result<(), JsValue> {
             jump,
             jumps: 0,
             ended: 0,
+            limited: 0,
             failed: Vec::new(),
             busy_voice: None,
             busy_ended: false,
@@ -131,7 +133,8 @@ pub fn busy_sequence() -> Result<(), JsValue> {
     })
 }
 
-/// Plays the jump effect, panned left.
+/// Plays the jump effect, panned left, with a little variation of pitch. A jump less
+/// than 0.75 s after the last one is refused by the sound's instance limits.
 #[wasm_bindgen]
 pub fn jump() -> Result<(), JsValue> {
     DEMO.with_borrow_mut(|demo| {
@@ -142,6 +145,11 @@ pub fn jump() -> Result<(), JsValue> {
                 &PlayOptions {
                     bus: demo.effects,
                     pan: -0.5,
+                    variation: Variation {
+                        pitch: 1.0,
+                        gain_db: 0.0,
+                    },
+                    instances: Some(demo.jump.instances().min_gap(0.75)),
                     ..PlayOptions::default()
                 },
             )
@@ -163,6 +171,7 @@ pub fn status() -> String {
             match event {
                 PlayerEvent::Ended(voice) if Some(voice) == demo.busy_voice => demo.busy_ended = true,
                 PlayerEvent::Ended(_) => demo.ended += 1,
+                PlayerEvent::Limited(_) => demo.limited += 1,
                 PlayerEvent::CommandFailed(error) => demo.failed.push(error.message),
                 PlayerEvent::Failed(_, code) => demo.failed.push(format!("{code:?}")),
                 _ => {}
@@ -172,13 +181,14 @@ pub fn status() -> String {
         demo.analyser.get_float_time_domain_data(&mut samples);
         let rms = (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt();
         format!(
-            "{{\"started\":true,\"running\":{},\"sampleRate\":{},\"frame\":{},\"rms\":{:.4},\"jumps\":{},\"ended\":{},\"failed\":{:?},\"busyEnded\":{}}}",
+            "{{\"started\":true,\"running\":{},\"sampleRate\":{},\"frame\":{},\"rms\":{:.4},\"jumps\":{},\"ended\":{},\"limited\":{},\"failed\":{:?},\"busyEnded\":{}}}",
             demo.output.is_running(),
             demo.output.sample_rate(),
             demo.player.frame(),
             rms,
             demo.jumps,
             demo.ended,
+            demo.limited,
             demo.failed,
             demo.busy_ended,
         )

@@ -3,7 +3,7 @@ members = [".", "worklet", "web-demo"]
 
 [package]
 name = "audiobox-device"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
 authors = ["Jose Sanchez <jose.sansan@proton.me>"]
@@ -23,7 +23,7 @@ default = ["web"]
 web = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:web-sys"]
 
 [dependencies]
-audiobox = { version = "0.2.1", features = ["mixer", "synth"] }
+audiobox = { version = "0.3.0", features = ["mixer", "synth"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 cpal = "0.18.2"
@@ -51,7 +51,7 @@ web-sys = { version = "0.3.106", optional = true, features = [
 ] }
 
 [dev-dependencies]
-audiobox = { version = "0.2.1", features = ["mixer", "synth", "sfx"] }
+audiobox = { version = "0.3.0", features = ["mixer", "synth", "sfx"] }
 
 [profile.release]
 opt-level = "s"

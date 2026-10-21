@@ -87,9 +87,9 @@ try {
     const result = await send('Runtime.evaluate', { expression: "document.getElementById('status')?.textContent ?? ''", returnByValue: true });
     text = result.result?.result?.value ?? '';
     try { status = JSON.parse(text); } catch { status = {}; }
-    if (status.running && status.frame >= 2 * 48_000 && status.rms > 0.01 && status.ended >= 2 && status.busyEnded) break;
+    if (status.running && status.frame >= 2 * 48_000 && status.rms > 0.01 && status.ended >= 2 && status.limited >= 1 && status.busyEnded) break;
   }
-  const passed = status.running === true && status.frame >= 2 * 48_000 && status.rms > 0.01 && status.ended >= 2 && status.busyEnded === true && status.failed?.length === 0 && errors.length === 0;
+  const passed = status.running === true && status.frame >= 2 * 48_000 && status.rms > 0.01 && status.ended >= 2 && status.limited >= 1 && status.busyEnded === true && status.failed?.length === 0 && errors.length === 0;
   console.log(JSON.stringify({ passed, browser, seconds: (Date.now() - start) / 1000, status, text: passed ? undefined : text, errors }, null, 1));
   code = passed ? 0 : 1;
 } catch (error) {
