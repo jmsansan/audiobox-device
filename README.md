@@ -10,8 +10,8 @@ changes.
 
 ```toml
 [dependencies]
-audiobox = { version = "0.2", features = ["mixer", "synth"] }
-audiobox-device = "0.1"
+audiobox = { version = "0.3", features = ["mixer", "synth"] }
+audiobox-device = "0.2"
 ```
 
 ## One API, native and Web
@@ -46,8 +46,16 @@ output.resume(); // from a user gesture's handler
   few kilobytes.
 - `play`, `stop`, `stop_all`, `set_gain`, `set_pan`, `set_bus_gain`, and the same at an
   exact frame through `at(frame)`.
-- `poll_event` reports voices that ended, were stolen or rejected, and, in the browser,
-  commands that failed on the audio thread.
+- The controls of `audiobox` 0.3, also at a frame:
+  - `PlayOptions` has a voice's `rate` and `pitch`, a seeded `variation`, where to `start`, its `instances` limits and a 2D `position`;
+  - `set_rate`, `set_pitch` and `set_position` change them while the voice plays;
+  - `pause` and `resume` act on a voice, and `pause_bus` and `resume_bus` on a bus, such as a game's pause menu;
+  - `reseed` restarts the variations.
+
+  `SoundId::instances()` keys the limits by the loaded sound, which works in the browser too.
+  The mixer's `seed`, `space` and master `limiter` come from its `MixerConfig`.
+- `poll_event` reports voices that ended, were stolen, rejected or limited, and, in the
+  browser, commands that failed on the audio thread.
 
 Natively, `AudioOutput::open(mixer, &config)` also takes an `audiobox` `Mixer` directly,
 for a game that drives its `MixerHandle` itself.

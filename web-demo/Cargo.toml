@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 audiobox-device = { path = ".." }
-audiobox = { version = "0.2.1", features = ["mixer", "synth", "sfx"] }
+audiobox = { version = "0.3.0", features = ["mixer", "synth", "sfx"] }
 wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "0.4.79"
 js-sys = "0.3.106"

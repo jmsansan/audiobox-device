@@ -3,15 +3,18 @@
 //! Each message from the main thread is one command; each message from the worklet is a
 //! sequence of events. Numbers are little-endian. The first byte of a message is its
 //! version, so a page and a worklet built from different versions fail clearly.
-use audiobox::mixer::{Fade, Loop, MixerConfig};
+use audiobox::mixer::{
+    Distance, Fade, Instances, Loop, MasterLimiter, MixerConfig, OverLimit, Space2d, Variation,
+};
 use audiobox::synth::{Aliasing, RenderOptions};
-use audiobox::{Audio, FadeCurve};
+use audiobox::{Audio, FadeCurve, TimePosition};
 
 use crate::player::{Bus, Command, PlayOptions, PlayerEvent, SoundId, VoiceId};
 use crate::{Error, ErrorCode, Result};
 
-/// The protocol's version, the first byte of every message.
-pub(crate) const VERSION: u8 = 1;
+/// The protocol's version, the first byte of every message. Version 2 carries the
+/// controls of audiobox 0.3.
+pub(crate) const VERSION: u8 = 2;
 
 /// The first message to the worklet: the mixer to make.
 pub(crate) fn encode_init(config: &MixerConfig) -> Vec<u8> {
@@ -23,6 +26,24 @@ pub(crate) fn encode_init(config: &MixerConfig) -> Vec<u8> {
     out.u16(config.buses.len() as u16);
     for bus in &config.buses {
         out.text(bus);
+    }
+    out.u64(config.seed);
+    let space = config.space;
+    out.f32(space.width);
+    out.f32(space.min_distance);
+    out.f32(space.max_distance);
+    out.u8(match space.model {
+        Distance::Linear => 0,
+        Distance::Inverse => 1,
+    });
+    match config.limiter {
+        None => out.u8(0),
+        Some(limiter) => {
+            out.u8(1);
+            out.f32(limiter.ceiling_db);
+            out.f32(limiter.lookahead_ms);
+            out.f32(limiter.release_ms);
+        }
     }
     out.0
 }
@@ -92,6 +113,42 @@ pub(crate) fn encode_command(command: &Command) -> Vec<u8> {
             }
             out.fade(options.fade_in);
             out.u8(options.priority);
+            out.f32(options.rate);
+            out.f32(options.pitch);
+            out.f32(options.variation.pitch);
+            out.f32(options.variation.gain_db);
+            match options.start {
+                TimePosition::Seconds(seconds) => {
+                    out.u8(0);
+                    out.f64(seconds);
+                }
+                TimePosition::Frames(frames) => {
+                    out.u8(1);
+                    out.u64(frames as u64);
+                }
+            }
+            match options.instances {
+                None => out.u8(0),
+                Some(instances) => {
+                    out.u8(1);
+                    out.u64(instances.key);
+                    out.u16(instances.max);
+                    out.f64(instances.min_gap);
+                    out.u8(match instances.policy {
+                        OverLimit::Refuse => 0,
+                        OverLimit::StopOldest => 1,
+                        OverLimit::StopQuietest => 2,
+                    });
+                }
+            }
+            match options.position {
+                None => out.u8(0),
+                Some([x, y]) => {
+                    out.u8(1);
+                    out.f32(x);
+                    out.f32(y);
+                }
+            }
             out.0
         }
         Command::Stop { voice, fade, at } => {
@@ -146,6 +203,75 @@ pub(crate) fn encode_command(command: &Command) -> Vec<u8> {
             out.fade(*fade);
             out.0
         }
+        Command::Rate {
+            voice,
+            rate,
+            fade,
+            at,
+        } => {
+            let mut out = Writer::new(10);
+            out.u64(voice.0);
+            out.option_u64(*at);
+            out.f32(*rate);
+            out.fade(*fade);
+            out.0
+        }
+        Command::Pitch {
+            voice,
+            semitones,
+            fade,
+            at,
+        } => {
+            let mut out = Writer::new(11);
+            out.u64(voice.0);
+            out.option_u64(*at);
+            out.f32(*semitones);
+            out.fade(*fade);
+            out.0
+        }
+        Command::Position {
+            voice,
+            position,
+            fade,
+            at,
+        } => {
+            let mut out = Writer::new(12);
+            out.u64(voice.0);
+            out.option_u64(*at);
+            out.f32(position[0]);
+            out.f32(position[1]);
+            out.fade(*fade);
+            out.0
+        }
+        Command::Pause { voice, fade, at } | Command::Resume { voice, fade, at } => {
+            let kind = if matches!(command, Command::Pause { .. }) {
+                13
+            } else {
+                14
+            };
+            let mut out = Writer::new(kind);
+            out.u64(voice.0);
+            out.option_u64(*at);
+            out.fade(*fade);
+            out.0
+        }
+        Command::PauseBus { bus, fade, at } | Command::ResumeBus { bus, fade, at } => {
+            let kind = if matches!(command, Command::PauseBus { .. }) {
+                15
+            } else {
+                16
+            };
+            let mut out = Writer::new(kind);
+            out.u16(bus.0);
+            out.option_u64(*at);
+            out.fade(*fade);
+            out.0
+        }
+        Command::Reseed { seed } => {
+            let mut out = Writer::new(17);
+            out.u64(*seed);
+            out.0
+        }
     }
 }
 
@@ -162,12 +288,35 @@ pub(crate) fn decode_message(bytes: &[u8]) -> Result<Message> {
             for _ in 0..count {
                 buses.push(input.text()?);
             }
+            let seed = input.u64()?;
+            let space = Space2d {
+                width: input.f32()?,
+                min_distance: input.f32()?,
+                max_distance: input.f32()?,
+                model: match input.u8()? {
+                    0 => Distance::Linear,
+                    1 => Distance::Inverse,
+                    other => return Err(malformed(format!("distance model {other}"))),
+                },
+            };
+            let limiter = match input.u8()? {
+                0 => None,
+                1 => Some(MasterLimiter {
+                    ceiling_db: input.f32()?,
+                    lookahead_ms: input.f32()?,
+                    release_ms: input.f32()?,
+                }),
+                other => return Err(malformed(format!("limiter {other}"))),
+            };
             Message::Init(MixerConfig {
                 sample_rate,
                 channels,
                 max_voices,
                 buses,
                 queue,
+                seed,
+                space,
+                limiter,
             })
         }
         1 => {
@@ -227,6 +376,37 @@ pub(crate) fn decode_message(bytes: &[u8]) -> Result<Message> {
             };
             let fade_in = input.fade()?;
             let priority = input.u8()?;
+            let rate = input.f32()?;
+            let pitch = input.f32()?;
+            let variation = Variation {
+                pitch: input.f32()?,
+                gain_db: input.f32()?,
+            };
+            let start = match input.u8()? {
+                0 => TimePosition::Seconds(input.f64()?),
+                1 => TimePosition::Frames(input.u64()? as i64),
+                other => return Err(malformed(format!("start {other}"))),
+            };
+            let instances = match input.u8()? {
+                0 => None,
+                1 => Some(Instances {
+                    key: input.u64()?,
+                    max: input.u16()?,
+                    min_gap: input.f64()?,
+                    policy: match input.u8()? {
+                        0 => OverLimit::Refuse,
+                        1 => OverLimit::StopOldest,
+                        2 => OverLimit::StopQuietest,
+                        other => return Err(malformed(format!("over-limit policy {other}"))),
+                    },
+                }),
+                other => return Err(malformed(format!("instances {other}"))),
+            };
+            let position = match input.u8()? {
+                0 => None,
+                1 => Some([input.f32()?, input.f32()?]),
+                other => return Err(malformed(format!("position {other}"))),
+            };
             Message::Command(Command::Play {
                 voice,
                 sound,
@@ -237,6 +417,12 @@ pub(crate) fn decode_message(bytes: &[u8]) -> Result<Message> {
                     looping,
                     fade_in,
                     priority,
+                    rate,
+                    pitch,
+                    variation,
+                    start,
+                    instances,
+                    position,
                 },
                 at,
             })
@@ -268,6 +454,45 @@ pub(crate) fn decode_message(bytes: &[u8]) -> Result<Message> {
             gain: input.f32()?,
             fade: input.fade()?,
         }),
+        10 => Message::Command(Command::Rate {
+            voice: VoiceId(input.u64()?),
+            at: input.option_u64()?,
+            rate: input.f32()?,
+            fade: input.fade()?,
+        }),
+        11 => Message::Command(Command::Pitch {
+            voice: VoiceId(input.u64()?),
+            at: input.option_u64()?,
+            semitones: input.f32()?,
+            fade: input.fade()?,
+        }),
+        12 => Message::Command(Command::Position {
+            voice: VoiceId(input.u64()?),
+            at: input.option_u64()?,
+            position: [input.f32()?, input.f32()?],
+            fade: input.fade()?,
+        }),
+        13 => Message::Command(Command::Pause {
+            voice: VoiceId(input.u64()?),
+            at: input.option_u64()?,
+            fade: input.fade()?,
+        }),
+        14 => Message::Command(Command::Resume {
+            voice: VoiceId(input.u64()?),
+            at: input.option_u64()?,
+            fade: input.fade()?,
+        }),
+        15 => Message::Command(Command::PauseBus {
+            bus: Bus(input.u16()?),
+            at: input.option_u64()?,
+            fade: input.fade()?,
+        }),
+        16 => Message::Command(Command::ResumeBus {
+            bus: Bus(input.u16()?),
+            at: input.option_u64()?,
+            fade: input.fade()?,
+        }),
+        17 => Message::Command(Command::Reseed { seed: input.u64()? }),
         other => return Err(malformed(format!("command {other}"))),
     };
     input.end()?;
@@ -314,6 +539,10 @@ pub(crate) fn encode_report(out: &mut Vec<u8>, report: &Report) {
             writer.u8(code_to_byte(error.code));
             writer.text(&error.message);
         }
+        Report::Event(PlayerEvent::Limited(voice)) => {
+            writer.u8(6);
+            writer.u64(voice.0);
+        }
     }
     *out = writer.0;
 }
@@ -335,6 +564,7 @@ pub(crate) fn decode_reports(bytes: &[u8]) -> Result<Vec<Report>> {
                 let code = byte_to_code(input.u8()?);
                 Report::Event(PlayerEvent::CommandFailed(Error::new(code, input.text()?)))
             }
+            6 => Report::Event(PlayerEvent::Limited(VoiceId(input.u64()?))),
             other => return Err(malformed(format!("report {other}"))),
         });
     }

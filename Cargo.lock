@@ -26,13 +26,13 @@ dependencies = [
 
 [[package]]
 name = "audiobox"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb0ef9191db4e62e75864d6bd4456174dc23fe47469477b11846a0dc5e750e92"
+checksum = "ac8464905409ee873ea5d064b1707f3c810a6fa0a99593a4bfb01c3c21daa8c6"
 
 [[package]]
 name = "audiobox-device"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "audiobox",
  "cpal",
