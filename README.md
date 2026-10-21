@@ -114,7 +114,10 @@ The worklet's module is built from `worklet/` by `node scripts/build-worklet.mjs
 `web/audiobox_device_worklet.wasm`, which is committed and embedded;
 `node scripts/build-worklet.mjs --check` verifies that it matches the source. The
 repository pins Rust 1.98.1 with the `wasm32-unknown-unknown` target in
-`rust-toolchain.toml`. There is no CI on pushes or pull requests; validation is local.
+`rust-toolchain.toml`. GitHub Actions runs on every pull request (including new commits)
+and can also be started manually. CI checks formatting, Clippy and tests on Linux,
+macOS and Windows, then lints the WebAssembly target, rebuilds and validates the worklet,
+and runs the browser check in headless Chrome.
 
 ## License
 
