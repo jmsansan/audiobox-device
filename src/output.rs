@@ -93,6 +93,8 @@ pub struct AudioOutput<B: Backend = CpalBackend> {
     pending: VecDeque<DeviceEvent>,
     /// Whether the stream must be opened again at the next poll.
     lost: bool,
+    /// Whether the application stopped the stream with [`AudioOutput::suspend`].
+    suspended: bool,
     last_check: Instant,
 }
 
@@ -143,6 +145,7 @@ impl<B: Backend> AudioOutput<B> {
             events,
             pending: VecDeque::new(),
             lost: false,
+            suspended: false,
             last_check: Instant::now(),
         };
         let info = output.start(output.config.device.clone())?;
@@ -175,6 +178,9 @@ impl<B: Backend> AudioOutput<B> {
     /// event, or `None`. Call it until it returns `None`, regularly, such as once per
     /// frame. It never blocks; reopening a stream takes as long as the system takes.
     pub fn poll(&mut self) -> Option<DeviceEvent> {
+        if self.suspended {
+            return self.pending.pop_front();
+        }
         loop {
             match self.events.try_recv() {
                 Ok(BackendEvent::Rerouted) => self.pending.push_back(DeviceEvent::Rerouted),
@@ -207,9 +213,40 @@ impl<B: Backend> AudioOutput<B> {
         self.pending.pop_front()
     }
 
+    /// Stops the device's stream, for an application that the system hides, such as an
+    /// Android activity sent to the background: the device no longer calls for audio,
+    /// and the mixer keeps its voices where they are. [`poll`](AudioOutput::poll)
+    /// reopens nothing while the output is suspended, and [`info`](AudioOutput::info)
+    /// is `None`. [`resume`](AudioOutput::resume) or [`reopen`](AudioOutput::reopen)
+    /// opens the stream again. Suspending a suspended output does nothing.
+    pub fn suspend(&mut self) {
+        // The callback holds a clone of the mixer; dropping the stream releases it.
+        self.stream = None;
+        self.info = None;
+        self.lost = false;
+        self.suspended = true;
+        // Events of the stopped stream no longer apply.
+        while self.events.try_recv().is_ok() {}
+    }
+
+    /// Opens the stream again after [`suspend`](AudioOutput::suspend), as
+    /// [`reopen`](AudioOutput::reopen) does. The mixer's voices go on from where they
+    /// were. On a failure the output stays open to [`poll`](AudioOutput::poll), which
+    /// retries once a second.
+    pub fn resume(&mut self) -> Result<&StreamInfo> {
+        self.reopen()
+    }
+
+    /// Whether [`suspend`](AudioOutput::suspend) stopped the stream and nothing
+    /// resumed it.
+    pub fn is_suspended(&self) -> bool {
+        self.suspended
+    }
+
     /// Opens the stream again at once, on the configured device, or on the default
-    /// device if that one is gone.
+    /// device if that one is gone. It also ends a [`suspend`](AudioOutput::suspend).
     pub fn reopen(&mut self) -> Result<&StreamInfo> {
+        self.suspended = false;
         self.lost = true;
         self.reopen_now();
         match &self.info {
