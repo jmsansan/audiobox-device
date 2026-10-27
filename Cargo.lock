@@ -32,7 +32,7 @@ checksum = "ac8464905409ee873ea5d064b1707f3c810a6fa0a99593a4bfb01c3c21daa8c6"
 
 [[package]]
 name = "audiobox-device"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "audiobox",
  "cpal",

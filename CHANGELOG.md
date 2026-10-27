@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- `AudioOutput::suspend` stops the device's stream for an application that the system hides, such as an Android activity in the background, and `resume` opens it again; the mixer's voices keep their place. `is_suspended` tells which. `poll` reopens nothing while the output is suspended.
+
 ## 0.2.0
 
 Built on `audiobox` 0.3, whose controls a `Player` now carries, natively and in the browser.

@@ -433,3 +433,43 @@ fn the_player_loads_sounds_and_plays_them_by_id() {
         std::iter::from_fn(|| player.poll_event()).any(|event| event == PlayerEvent::Ended(music))
     );
 }
+
+#[test]
+fn a_suspended_output_stops_its_stream_and_resumes_the_voices() {
+    let mock = Mock::new(48_000, 2);
+    let (mixer, mut handle) = mixer_with_tone();
+    let mut output =
+        AudioOutput::with_backend(mock.clone(), mixer, &DeviceConfig::default()).unwrap();
+    mock.pull(4_800);
+    output.suspend();
+    output.suspend();
+    assert!(output.is_suspended());
+    assert!(output.info().is_none());
+    // A loss reported by the stopped stream, or a new default device, reopens nothing
+    // while the output is suspended.
+    mock.report(BackendEvent::Lost(Error::new(
+        ErrorCode::DeviceUnavailable,
+        "gone",
+    )));
+    mock.0.lock().unwrap().default_id = "headphones".into();
+    std::thread::sleep(Duration::from_millis(1_100));
+    assert!(drain(&mut output).is_empty());
+    assert_eq!(mock.starts(), 1);
+    // Resumed, on the default device, and the voice goes on.
+    let info = output.resume().unwrap().clone();
+    assert!(!output.is_suspended());
+    assert_eq!(info.device_id, "headphones");
+    assert_eq!(mock.starts(), 2);
+    let events = drain(&mut output);
+    assert!(
+        matches!(events.as_slice(), [DeviceEvent::Reopened(_)]),
+        "{events:?}"
+    );
+    let samples = mock.pull(480);
+    assert!(
+        samples
+            .iter()
+            .all(|s| (s - 0.25 * std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-3)
+    );
+    assert_eq!(handle.poll_event(), None);
+}
